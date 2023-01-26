@@ -3,6 +3,8 @@ from typing import Dict, Optional, Union
 import numpy as np
 import scanpy as sc
 from anndata import AnnData
+from scipy.sparse import issparse
+from scanpy.get import _get_obs_rep, _set_obs_rep
 
 from data_utils import logger
 
@@ -174,8 +176,12 @@ class Preprocessor:
         # step 7: remove outliers
         if self.remove_outliers:
             logger.info("Removing outliers ...")
-            max_value = np.quantile(adata.X.A[np.nonzero(adata.X.A)], self.remove_outliers)
-            adata.X.A = np.clip(adata.X.A, None, max_value)
+            if issparse(adata.X):
+                layer_data=adata.X.A
+            else:
+                layer_data=adata.X
+            max_value = np.quantile(layer_data[np.nonzero(layer_data)], self.remove_outliers)
+            adata.X = np.clip(layer_data, None, max_value)
         
         logger.info("Preprocessing completed. Base layer 'X' contains fully preprocessed data")
         logger.info(f"Other {adata.layers}")
