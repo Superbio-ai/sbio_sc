@@ -1,9 +1,7 @@
 from typing import Dict, Optional, Union
 
 import numpy as np
-from scipy.sparse import issparse
 import scanpy as sc
-from scanpy.get import _get_obs_rep, _set_obs_rep
 from anndata import AnnData
 
 from data_utils import logger
@@ -11,8 +9,7 @@ from data_utils import logger
 
 class Preprocessor:
     """
-    Prepare data into training, valid and test split. Normalize raw expression
-    values, binning or using other transform into the preset model input format.
+    Filter rare genes or cells, normalize raw expression values, log transform, subset highly variable genes and trim outliers.
     """
 
     def __init__(
@@ -78,7 +75,7 @@ class Preprocessor:
     def __call__(self, adata: AnnData) -> Dict:
         """
         format controls the different input value wrapping, including categorical
-        binned style, fixed-sum normalized counts, log1p fixed-sum normalized counts, etc.
+        binned style, fixed-sum normalized counts, log fixed-sum normalized counts, etc.
 
         Args:
 
@@ -186,7 +183,7 @@ class Preprocessor:
         
     def check_logged(self, adata: AnnData, obs_key: Optional[str] = None) -> bool:
         """
-        Check if the data is already log1p transformed.
+        Check if the data is already log transformed.
         Args:
         adata (:class:`AnnData`):
             The :class:`AnnData` object to preprocess.

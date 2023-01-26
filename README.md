@@ -5,6 +5,10 @@
 ### sbio_sc for single cell analysis using PyTorch
 Superbio provide pretrained models to perform tasks on scRNA data. This can include, but is not limited to: differential gene expression analysis, cell type annotation, dimension reduction, clustering and network analysis (https://www.superbio.ai). To use the Web GUI version of this repo and others visit (https://app.superbio.ai)
 
+Original implementation adapted from scFormer (https://github.com/bowang-lab/scFormer).
+Cui H, Wang C, Maan H, Duan N, Wang B. scFormer: A Universal Representation Learning Approach for Single-Cell Data Using Transformers. 
+bioRxiv; 2022. DOI: 10.1101/2022.11.20.517285. (https://www.biorxiv.org/content/biorxiv/early/2022/11/22/2022.11.20.517285.full.pdf)
+
 # Install
 Please refer to requirements.txt for dependencies. Example installation commands are shown below, with the cuda and pytorch installations depending on local GPU hardware. Please refer to (https://pytorch.org/get-started/locally/) for more details
 ```
