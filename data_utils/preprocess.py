@@ -5,8 +5,19 @@ import scanpy as sc
 from anndata import AnnData
 from scipy.sparse import issparse
 from scanpy.get import _get_obs_rep, _set_obs_rep
+from sklearn.model_selection import train_test_split
+from torchtext.vocab import Vocab
+from torchtext._torchtext import (
+    Vocab as VocabPybind,
+)
 
 from data_utils import logger
+
+
+# settings for input and preprocessing
+pad_token = "<pad>"
+special_tokens = [pad_token, "<cls>", "<eoc>"]
+include_zero_gene=True
 
 
 class Preprocessor:
@@ -26,7 +37,7 @@ class Preprocessor:
         result_log_key: str = "X_log",
         subset_hvg: Union[int, float, bool] = False,
         hvg_flavor: str = "seurat",
-        remove_outliers: float = 0.99
+        remove_outliers: Union[float, bool] = False
     ):
         r"""
         Set up the preprocessor, use the args to config the workflow steps.
@@ -152,7 +163,7 @@ class Preprocessor:
             if self.result_log_key:                
                 sc.pp.log1p(adata)
                 adata.layers[self.result_log_key]=adata.X
-
+        
         # step 6: subset hvg
         if self.subset_hvg:
             logger.info("Subsetting highly variable genes ...")
@@ -185,7 +196,7 @@ class Preprocessor:
         
         logger.info("Preprocessing completed. Base layer 'X' contains fully preprocessed data")
         logger.info(f"Other {adata.layers}")
-            
+        
         
     def check_logged(self, adata: AnnData, obs_key: Optional[str] = None) -> bool:
         """
@@ -194,8 +205,7 @@ class Preprocessor:
         adata (:class:`AnnData`):
             The :class:`AnnData` object to preprocess.
         obs_key (:class:`str`, optional):
-            The key of :class:`AnnData.obs` to use for batch information. This arg
-            is used in the highly variable gene selection step.
+            The key of :class:`AnnData.obs` to use for batch information.
         """
         data = _get_obs_rep(adata, layer=obs_key)
         max_, min_ = data.max(), data.min()
@@ -209,3 +219,115 @@ class Preprocessor:
             return False
 
         return True
+    
+    
+    def check_normed(self, adata: AnnData, obs_key: Optional[str] = None) -> bool:
+        """
+        Check if the data is already normed.
+        Args:
+        adata (:class:`AnnData`):
+            The :class:`AnnData` object to preprocess.
+        obs_key (:class:`str`, optional):
+            The key of :class:`AnnData.obs` to use for batch information.
+        """
+        data = _get_obs_rep(adata, layer=obs_key)
+        
+        diff_sum = np.array(data!=data[0]).sum()
+        
+        if diff_sum >0:
+            return False
+        else:
+            return True
+    
+
+def split_data(adata,config):
+    
+    all_counts = (
+        adata.X.A
+        if issparse(adata.X)
+        else adata.X
+    )
+    
+    genes = adata.var["gene_name"].tolist()
+
+    celltypes_labels = adata.obs[config['target_key']].tolist()  # make sure count from 0
+    num_types = len(set(celltypes_labels))
+    celltypes_labels = np.array(celltypes_labels)
+    
+    batch_ids = adata.obs["batch_id"].tolist()
+    num_batch_types = len(set(batch_ids))
+    batch_ids = np.array(batch_ids)
+    
+    (
+        train_data,
+        valid_data,
+        train_celltype_labels,
+        valid_celltype_labels,
+        train_batch_labels,
+        valid_batch_labels,
+    ) = train_test_split(
+        all_counts, celltypes_labels, batch_ids, test_size=config['test_size'], shuffle=True
+    )
+        
+    # prin max, min and average num of non_zero genes
+    num_of_non_zero_genes = [
+        np.count_nonzero(train_data[i]) for i in range(train_data.shape[0])
+    ]
+    logger.info(f"max num of non_zero genes: {np.max(num_of_non_zero_genes)}")
+    logger.info(f"min num of non_zero genes: {np.min(num_of_non_zero_genes)}")
+    logger.info(f"average num of non_zero genes: {np.mean(num_of_non_zero_genes)}")
+    logger.info(
+        f"99% quantile num of non_zero genes: {np.quantile(num_of_non_zero_genes, 0.99)}"
+    )
+    logger.info(f"max original values: {np.max(train_data)}")
+    logger.info(
+        f"average original non_zero values: {np.mean(train_data[np.nonzero(train_data)])}"
+    )
+    logger.info(
+        f"99% quantile original non_zero values: {np.quantile(train_data[np.nonzero(train_data)], 0.99)}"
+    )
+    logger.info(f"num of celltypes: {num_types}")
+    if not include_zero_gene:
+        config['max_seq_len'] = min(
+            config['max_seq_len'], np.max(num_of_non_zero_genes) + 1
+        )  # 1 for <cls>
+    
+    #vocab load (by genes)
+    vocab = Vocab(
+        VocabPybind(genes + special_tokens, None)
+    )  # bidirectional lookup [gene <-> int]
+    vocab.set_default_index(vocab["<pad>"])
+    gene_ids = np.array(vocab(genes), dtype=int)
+
+    tokenized_train = tokenize_and_pad_batch(
+        train_data,
+        gene_ids,
+        max_len=config['max_seq_len'],
+        vocab=vocab,
+        pad_token=config['pad_token'],
+        pad_value=config['pad_value'],
+        append_cls=True,  # append <cls> token at the beginning
+        include_zero_gene=include_zero_gene,
+    )
+    tokenized_valid = tokenize_and_pad_batch(
+        valid_data,
+        gene_ids,
+        max_len=config['max_seq_len'],
+        vocab=vocab,
+        pad_token=config['pad_token'],
+        pad_value=config['pad_value'],
+        append_cls=True,
+        include_zero_gene=include_zero_gene,
+    )
+    
+    logger.info(
+        f"train set number of samples: {tokenized_train['genes'].shape[0]}, "
+        f"\n\t feature length: {tokenized_train['genes'].shape[1]}"
+    )
+    logger.info(
+        f"valid set number of samples: {tokenized_valid['genes'].shape[0]}, "
+        f"\n\t feature length: {tokenized_valid['genes'].shape[1]}"
+    )
+    
+    
+    
