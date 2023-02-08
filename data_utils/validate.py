@@ -108,9 +108,12 @@ class Validator:
             The key of :class:`AnnData.obs` to use for batch information.
         """
         data = _get_obs_rep(self.adata, layer=obs_key)
-
-        diff_sum = np.array(data!=data[0]).sum()
-
+        
+        if issparse(data):
+            diff_sum = np.array(data.A!=data.A[0]).sum()
+        else:
+            diff_sum = np.array(data!=data[0]).sum()
+        
         if diff_sum >0:
             return False
         else:
